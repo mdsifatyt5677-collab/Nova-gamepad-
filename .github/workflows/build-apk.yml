@@ -33,6 +33,10 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "Project directory: $PROJECT_DIR"
 
+      - name: Fix Android theme
+        run: |
+          sed -i 's/Theme.Material3.DayNight.NoActionBar/android:style\/Theme.Material.Light.NoActionBar/' "$PROJECT_DIR/app/src/main/res/values/themes.xml"
+
       - name: Install Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
