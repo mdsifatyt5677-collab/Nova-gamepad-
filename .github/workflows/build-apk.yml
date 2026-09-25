@@ -29,93 +29,100 @@ jobs:
         run: |
           rm -rf project
           mkdir -p project
-
           unzip -o NovaGamepad-Day5-assets.zip -d project
-
-          echo "Extracted files:"
-          find project -maxdepth 4 -type f | head -100
 
       - name: Find Gradle project
         run: |
           PROJECT_DIR=$(dirname "$(find project -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit)")
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Gradle project was not found."
+            echo "ERROR: Gradle project not found."
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          echo "Project directory: $PROJECT_DIR"
 
       - name: Fix Day-5 Kotlin source
         run: |
-          MAIN="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt"
           EDITABLE="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/components/EditableElement.kt"
           STATE="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/model/GamepadUiState.kt"
 
-          # Fix AndroidX WindowInsets constant
+          python3 - "$EDITABLE" "$STATE" <<'PY'
+          import sys
+
+          editable = sys.argv[1]
+          state = sys.argv[2]
+
+          # -----------------------------------------
+          # EditableElement.kt
+          # -----------------------------------------
+          with open(editable, "r", encoding="utf-8") as f:
+              s = f.read()
+
+          # matchParentSize is a BoxScope modifier.
+          # It is already used inside Box { }, so this import
+          # must NOT be present.
+          s = s.replace(
+              "import androidx.compose.foundation.layout.matchParentSize\n",
+              ""
+          )
+
+          with open(editable, "w", encoding="utf-8") as f:
+              f.write(s)
+
+          # -----------------------------------------
+          # GamepadUiState.kt
+          # -----------------------------------------
+          with open(state, "r", encoding="utf-8") as f:
+              s = f.read()
+
+          # Compose BOM 2024.06 uses runtime 1.6.x.
+          # mutableStateSetOf was added later, so use
+          # mutableStateListOf and prevent duplicates manually.
+          s = s.replace(
+              "import androidx.compose.runtime.mutableStateSetOf\n",
+              "import androidx.compose.runtime.mutableStateListOf\n"
+          )
+
+          s = s.replace(
+              "private val pressedControls = mutableStateSetOf<GamepadControl>()",
+              "private val pressedControls = mutableStateListOf<GamepadControl>()"
+          )
+
+          s = s.replace(
+              "val pressed: Set<GamepadControl> get() = pressedControls",
+              "val pressed: Set<GamepadControl> get() = pressedControls.toSet()"
+          )
+
+          s = s.replace(
+              "pressedControls.add(control)\n        selected = control",
+              """if (control !in pressedControls) {
+              pressedControls.add(control)
+          }
+          selected = control"""
+          )
+
+          with open(state, "w", encoding="utf-8") as f:
+              f.write(s)
+
+          print("Source fixes applied successfully.")
+          PY
+
+      - name: Fix Android fullscreen constant
+        run: |
+          MAIN="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt"
+
           sed -i \
             's/BEHAVIOR_SHOW_TRANSIENT_BY_SWIPE_GESTURE/BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE/g' \
             "$MAIN"
 
-          # mutableStateSetOf is inside runtime.snapshots
-          sed -i \
-            's/import androidx.compose.runtime.mutableStateSetOf/import androidx.compose.runtime.snapshots.mutableStateSetOf/' \
-            "$STATE"
-
-          echo "----- GamepadUiState imports -----"
-          head -15 "$STATE"
-
-          echo "----- MainActivity WindowInsets -----"
-          grep -n "BEHAVIOR_SHOW" "$MAIN" || true
-
-          echo "----- EditableElement -----"
-          grep -n "matchParentSize" "$EDITABLE" || true
-
-      - name: Fix Compose dependencies
+      - name: Fix app version
         run: |
           BUILD="$PROJECT_DIR/app/build.gradle.kts"
 
-          python3 - "$BUILD" <<'PY'
-          import sys
-
-          path = sys.argv[1]
-
-          with open(path, "r", encoding="utf-8") as f:
-              s = f.read()
-
-          dependency = '    implementation("androidx.compose.foundation:foundation")'
-
-          if dependency not in s:
-              marker = '    implementation("androidx.compose.ui:ui")'
-              if marker in s:
-                  s = s.replace(
-                      marker,
-                      marker + "\n" + dependency,
-                      1
-                  )
-              else:
-                  raise SystemExit(
-                      "Could not find Compose UI dependency in build.gradle.kts"
-                  )
-
-          # Day-5 version
-          s = s.replace(
-              'versionCode = 1',
-              'versionCode = 2'
-          )
-
-          s = s.replace(
-              'versionName = "0.1.0-day1"',
-              'versionName = "0.2.0-day5"'
-          )
-
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(s)
-
-          print("Compose foundation dependency added.")
-          print("Version changed to 0.2.0-day5.")
-          PY
+          sed -i 's/versionCode = 1/versionCode = 2/' "$BUILD"
+          sed -i 's/versionName = "0.1.0-day1"/versionName = "0.2.0-day5"/' "$BUILD"
 
       - name: Create valid Android theme
         run: |
@@ -148,42 +155,19 @@ jobs:
 
       - name: Verify source fixes
         run: |
-          echo "========================================"
-          echo "BUILD PROJECT"
-          echo "========================================"
-
-          echo "Project:"
-          echo "$PROJECT_DIR"
+          echo "===== EditableElement.kt imports ====="
+          sed -n '1,20p' \
+            "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/components/EditableElement.kt"
 
           echo ""
-          echo "Gradle files:"
-          find "$PROJECT_DIR" -maxdepth 2 -type f \
-            \( -name "settings.gradle.kts" -o -name "build.gradle.kts" \) \
-            -print
-
-          echo ""
-          echo "Version:"
-          grep -n "versionCode\|versionName" \
-            "$PROJECT_DIR/app/build.gradle.kts"
-
-          echo ""
-          echo "Compose foundation:"
-          grep -n "compose.foundation" \
-            "$PROJECT_DIR/app/build.gradle.kts"
-
-          echo ""
-          echo "mutableStateSetOf import:"
-          grep -n "mutableStateSetOf" \
+          echo "===== GamepadUiState.kt imports/state ====="
+          sed -n '1,45p' \
             "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/model/GamepadUiState.kt"
 
           echo ""
-          echo "WindowInsets constant:"
-          grep -n "BEHAVIOR_SHOW" \
-            "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt"
-
-          echo ""
-          echo "Theme:"
-          cat "$PROJECT_DIR/app/src/main/res/values/themes.xml"
+          echo "===== Version ====="
+          grep -n "versionCode\|versionName" \
+            "$PROJECT_DIR/app/build.gradle.kts"
 
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
@@ -207,7 +191,6 @@ jobs:
             exit 1
           fi
 
-          echo ""
           echo "========================================"
           echo "APK BUILD SUCCESSFUL"
           echo "========================================"
