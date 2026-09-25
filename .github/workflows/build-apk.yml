@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
@@ -44,12 +44,14 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project directory: $PROJECT_DIR"
 
-      - name: Fix Day-5 project
+      - name: Fix Android source
         run: |
           MAIN="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt"
           BUILD="$PROJECT_DIR/app/build.gradle.kts"
+          EDITABLE="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/components/EditableElement.kt"
+          STATE="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/model/GamepadUiState.kt"
 
-          echo "Patching MainActivity.kt..."
+          echo "Fixing fullscreen constant..."
           sed -i \
             's/BEHAVIOR_SHOW_TRANSIENT_BY_SWIPE_GESTURE/BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE/g' \
             "$MAIN"
@@ -63,7 +65,33 @@ jobs:
             's/versionName = "[^"]*"/versionName = "0.2.0-day5"/' \
             "$BUILD"
 
-      - name: Fix Android theme
+          echo "Fixing matchParentSize..."
+          sed -i \
+            's/import androidx.compose.foundation.layout.matchParentSize/import androidx.compose.foundation.layout.fillMaxSize/' \
+            "$EDITABLE"
+
+          sed -i \
+            's/Modifier\.matchParentSize()/Modifier.fillMaxSize()/' \
+            "$EDITABLE"
+
+          echo "Fixing mutableStateSetOf..."
+          sed -i \
+            's/import androidx.compose.runtime.mutableStateSetOf/import androidx.compose.runtime.mutableStateMapOf/' \
+            "$STATE"
+
+          sed -i \
+            's/private val pressedControls = mutableStateSetOf<GamepadControl>()/private val pressedControls = mutableStateMapOf<GamepadControl, Unit>()/' \
+            "$STATE"
+
+          sed -i \
+            's/pressedControls.add(control)/pressedControls[control] = Unit/' \
+            "$STATE"
+
+          sed -i \
+            's/pressedControls.remove(control)/pressedControls.remove(control)/' \
+            "$STATE"
+
+      - name: Create valid Android theme
         run: |
           mkdir -p "$PROJECT_DIR/app/src/main/res/values"
 
@@ -92,22 +120,27 @@ jobs:
           </resources>
           EOF
 
-      - name: Remove nested GitHub workflow
+      - name: Remove nested workflow
         run: |
           rm -rf "$PROJECT_DIR/.github"
 
-      - name: Verify project
+      - name: Verify source fixes
         run: |
           echo "===== VERSION ====="
           grep -nE "applicationId|versionCode|versionName" \
             "$PROJECT_DIR/app/build.gradle.kts"
 
-          echo "===== FULLSCREEN CONSTANT ====="
+          echo "===== MATCH PARENT SIZE ====="
+          grep -nE "matchParentSize|fillMaxSize" \
+            "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/components/EditableElement.kt"
+
+          echo "===== PRESSED CONTROLS ====="
+          grep -nE "pressedControls|mutableStateMapOf" \
+            "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/features/gamepad/model/GamepadUiState.kt"
+
+          echo "===== FULLSCREEN ====="
           grep -n "BEHAVIOR_SHOW" \
             "$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt" || true
-
-          echo "===== THEME ====="
-          cat "$PROJECT_DIR/app/src/main/res/values/themes.xml"
 
       - name: Install Gradle
         uses: gradle/actions/setup-gradle@v4
