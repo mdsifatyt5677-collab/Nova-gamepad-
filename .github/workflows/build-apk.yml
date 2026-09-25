@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "NovaGamepad-Day2-layout-fix.zip"
+      - "NovaGamepad-Day5-assets.zip"
       - ".github/workflows/build-apk.yml"
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Extract project
         run: |
-          unzip -o NovaGamepad-Day2-layout-fix.zip -d project
+          unzip -o NovaGamepad-Day5-assets.zip -d project
 
       - name: Find Gradle project
         run: |
@@ -40,13 +40,22 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Project directory: $PROJECT_DIR"
 
-      - name: Fix Android source
+      - name: Fix Android source and version
         run: |
           MAIN="$PROJECT_DIR/app/src/main/java/com/novagamepad/app/MainActivity.kt"
+          BUILD="$PROJECT_DIR/app/build.gradle.kts"
 
           sed -i \
             's/BEHAVIOR_SHOW_TRANSIENT_BY_SWIPE_GESTURE/BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE/g' \
             "$MAIN"
+
+          sed -i \
+            's/versionCode = [0-9]*/versionCode = 2/' \
+            "$BUILD"
+
+          sed -i \
+            's/versionName = "[^"]*"/versionName = "0.2.0-day5"/' \
+            "$BUILD"
 
       - name: Create valid Android theme
         run: |
@@ -77,6 +86,10 @@ jobs:
 
       - name: Verify patches
         run: |
+          echo "----- build.gradle.kts -----"
+          grep -nE "applicationId|versionCode|versionName" \
+            "$PROJECT_DIR/app/build.gradle.kts"
+
           echo "----- themes.xml -----"
           cat "$PROJECT_DIR/app/src/main/res/values/themes.xml"
 
@@ -109,5 +122,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NovaGamepad-APK
+          name: NovaGamepad-APK-Day5
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
